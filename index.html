@@ -91,7 +91,7 @@
                 </div>
             </header>
 
-            <div class="flex flex-col sm:flex-row gap-4 mb-8">
+            <div class="flex flex-col sm:flex-row gap-4 mb-8 p-1">
                 <input type="text" id="new-project-input" class="w-full bg-gray-700 text-white placeholder-gray-400 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Nombre del nuevo proyecto...">
                 <button id="add-project-btn" class="sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg transition-transform transform hover:scale-105 inline-flex items-center justify-center space-x-2">
                     <i data-lucide="plus" class="h-5 w-5"></i>
@@ -156,7 +156,8 @@
             let db, auth, userId, projectsCollectionRef, unsubscribe;
             let projectToDelete = null;
             let allProjectsData = [];
-            let collapsedProjects = new Set(); // To store the state
+            let collapsedProjects = new Set();
+            let focusAfterRender = null; // To store which input to focus
 
             // DOM Elements
             const loginScreen = document.getElementById('login-screen');
@@ -217,7 +218,6 @@
                      nextTaskHTML = `<div class="flex items-center gap-2 text-sm text-green-400"><i data-lucide="check-circle-2" class="h-4 w-4"></i><span>¡Proyecto completado!</span></div>`;
                 }
 
-
                 card.innerHTML = `
                     <div class="flex justify-between items-start">
                         <div class="flex items-center gap-2 cursor-pointer toggle-collapse-btn">
@@ -244,7 +244,7 @@
                             </div>
                         </div>
                         ${subtasksHTML}
-                        <div class="flex gap-2 mt-6">
+                        <div class="flex gap-2 mt-6 p-1">
                             <input type="text" class="new-subtask-input w-full bg-gray-800 text-white placeholder-gray-500 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Nueva subtarea...">
                             <button class="add-subtask-btn bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-3 rounded-lg inline-flex items-center justify-center">
                                 <i data-lucide="plus" class="h-5 w-5"></i>
@@ -262,8 +262,19 @@
                     }
                 });
                 card.querySelector('.delete-project-btn').addEventListener('click', () => showDeleteModal(projectId, projectData.title));
-                card.querySelector('.add-subtask-btn').addEventListener('click', (e) => { const input = e.currentTarget.previousElementSibling; addSubtask(projectId, input.value); input.value = ''; });
-                card.querySelector('.new-subtask-input').addEventListener('keyup', (e) => { if (e.key === 'Enter') { addSubtask(projectId, e.target.value); e.target.value = ''; } });
+                const subtaskInput = card.querySelector('.new-subtask-input');
+                card.querySelector('.add-subtask-btn').addEventListener('click', () => {
+                     if (subtaskInput.value.trim()) {
+                        addSubtask(projectId, subtaskInput.value);
+                        focusAfterRender = subtaskInput; // Store the element itself
+                     }
+                });
+                subtaskInput.addEventListener('keyup', (e) => { 
+                    if (e.key === 'Enter' && subtaskInput.value.trim()) {
+                        addSubtask(projectId, e.target.value);
+                        focusAfterRender = e.target; // Store the element itself
+                    }
+                });
                 card.querySelectorAll('.delete-subtask-btn').forEach(btn => btn.addEventListener('click', () => deleteSubtask(projectId, btn.dataset.taskId, projectData.subtasks)));
                 card.querySelectorAll('input[type="checkbox"]').forEach(checkbox => checkbox.addEventListener('change', () => updateSubtaskStatus(projectId, checkbox.dataset.taskId, checkbox.checked, projectData.subtasks)));
 
@@ -275,6 +286,11 @@
                 allProjectsData = projects.map(p => ({ id: p.id, ...p.data() }));
                 projects.forEach(project => projectsContainer.appendChild(createProjectCard(project)));
                 lucide.createIcons();
+                if (focusAfterRender) {
+                    focusAfterRender.value = ''; // Clear the input
+                    focusAfterRender.focus();   // Re-focus
+                    focusAfterRender = null;    // Reset the flag
+                }
             }
             
             function showModal(modalEl) {
@@ -300,21 +316,12 @@
             function cleanAIResponse(text) {
                 const firstBrace = text.indexOf('{');
                 const lastBrace = text.lastIndexOf('}');
-
-                if (firstBrace === -1 || lastBrace === -1 || lastBrace < firstBrace) {
-                    return null;
-                }
+                if (firstBrace === -1 || lastBrace === -1 || lastBrace < firstBrace) return null;
                 return text.substring(firstBrace, lastBrace + 1);
             }
 
-
             // --- FIRESTORE & AI FUNCTIONS ---
-            async function addProject(title, subtasks = []) {
-                if (title && userId) {
-                    try { await addDoc(projectsCollectionRef, { title, createdAt: serverTimestamp(), subtasks }); newProjectInput.value = ''; } catch (error) { console.error("Error adding project: ", error); }
-                }
-            }
-
+            async function addProject(title, subtasks = []) { if (title && userId) { try { await addDoc(projectsCollectionRef, { title, createdAt: serverTimestamp(), subtasks }); newProjectInput.value = ''; } catch (error) { console.error("Error adding project: ", error); } } }
             async function generateSubtasksWithAI() {
                 const projectTitle = newProjectInput.value.trim();
                 if (!projectTitle) return;
@@ -343,30 +350,13 @@
                     lucide.createIcons();
                 }
             }
-            
             async function getAIInsights() {
-                if (allProjectsData.length === 0) {
-                    alert("Necesitas tener al menos un proyecto para recibir consejos.");
-                    return;
-                }
-                
+                if (allProjectsData.length === 0) { alert("Necesitas tener al menos un proyecto para recibir consejos."); return; }
                 aiInsightsContent.innerHTML = `<div class="text-center"><i data-lucide="loader-2" class="h-8 w-8 animate-spin-fast text-purple-400 mx-auto"></i><p class="text-purple-300 mt-2">Analizando tu progreso...</p></div>`;
                 lucide.createIcons();
                 showModal(aiInsightsModal);
-
-                const projectSummary = allProjectsData.map(p => {
-                    const total = p.subtasks.length;
-                    const completed = p.subtasks.filter(t => t.completed).length;
-                    return `Project: "${p.title}" - Status: ${completed}/${total} tasks completed.`;
-                }).join('\n');
-
-                const prompt = `You are a productivity coach AI. Analyze the following summary of a user's projects. Based on this data, provide a brief, encouraging analysis of their productivity and sentiment. Then, offer one specific, actionable productivity tip, and one suggestion for a new project they might enjoy based on their existing project titles. The entire response must be in Spanish.
-                
-                User's Project Data:
-                ${projectSummary}
-
-                Return ONLY a single, raw, valid JSON object with three keys: "observation", "tip", and "suggestion". Example: {"observation": "Estás haciendo un gran progreso...", "tip": "Prueba la Técnica Pomodoro...", "suggestion": "Dado que te gusta 'Aprender Piano', ¿qué tal un proyecto llamado 'Componer una canción corta'?"}`;
-
+                const projectSummary = allProjectsData.map(p => { const total = p.subtasks.length; const completed = p.subtasks.filter(t => t.completed).length; return `Project: "${p.title}" - Status: ${completed}/${total} tasks completed.`; }).join('\n');
+                const prompt = `You are a productivity coach AI. Analyze the following summary of a user's projects. Based on this data, provide a brief, encouraging analysis of their productivity and sentiment. Then, offer one specific, actionable productivity tip, and one suggestion for a new project they might enjoy based on their existing project titles. The entire response must be in Spanish. User's Project Data:\n${projectSummary}\n\nReturn ONLY a single, raw, valid JSON object with three keys: "observation", "tip", and "suggestion". Example: {"observation": "Estás haciendo un gran progreso...", "tip": "Prueba la Técnica Pomodoro...", "suggestion": "Dado que te gusta 'Aprender Piano', ¿qué tal un proyecto llamado 'Componer una canción corta'?"}`;
                 try {
                     const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
                     const apiKey = "AIzaSyAW7aAZeEEeJDhwyRurEvpbMS4N3NoSjmw";
@@ -378,30 +368,10 @@
                         const cleanedText = cleanAIResponse(result.candidates[0].content.parts[0].text);
                         if (!cleanedText) throw new Error("Could not find valid JSON in AI response.");
                         const parsed = JSON.parse(cleanedText);
-                        aiInsightsContent.innerHTML = `
-                            <div class="space-y-4">
-                                <div>
-                                    <h4 class="font-semibold text-purple-300">📈 Observación General</h4>
-                                    <p>${parsed.observation}</p>
-                                </div>
-                                <div>
-                                    <h4 class="font-semibold text-green-300">💡 Consejo de Productividad</h4>
-                                    <p>${parsed.tip}</p>
-                                </div>
-                                <div>
-                                    <h4 class="font-semibold text-blue-300">🚀 Sugerencia de Nuevo Proyecto</h4>
-                                    <p>${parsed.suggestion}</p>
-                                </div>
-                            </div>
-                        `;
+                        aiInsightsContent.innerHTML = `<div class="space-y-4"><div><h4 class="font-semibold text-purple-300">📈 Observación General</h4><p>${parsed.observation}</p></div><div><h4 class="font-semibold text-green-300">💡 Consejo de Productividad</h4><p>${parsed.tip}</p></div><div><h4 class="font-semibold text-blue-300">🚀 Sugerencia de Nuevo Proyecto</h4><p>${parsed.suggestion}</p></div></div>`;
                     } else { throw new Error("Invalid AI response structure."); }
-                } catch (error) {
-                    console.error("Error getting AI insights: ", error);
-                    aiInsightsContent.innerHTML = `<p class="text-red-400 text-center">Hubo un error al obtener los consejos. Por favor, inténtalo de nuevo.</p>`;
-                }
+                } catch (error) { console.error("Error getting AI insights: ", error); aiInsightsContent.innerHTML = `<p class="text-red-400 text-center">Hubo un error al obtener los consejos. Por favor, inténtalo de nuevo.</p>`; }
             }
-
-
             async function deleteProject(projectId) { try { await deleteDoc(doc(db, 'projects', userId, 'userProjects', projectId)); hideModal(confirmationModal); } catch (error) { console.error("Error deleting project: ", error); } }
             async function addSubtask(projectId, text) { if (!text.trim()) return; try { const projectRef = doc(db, 'projects', userId, 'userProjects', projectId); await updateDoc(projectRef, { subtasks: arrayUnion({ id: doc(collection(db, 'dummy')).id, text: text.trim(), completed: false }) }); } catch(error) { console.error("Error adding subtask: ", error); } }
             async function updateSubtaskStatus(projectId, taskId, isCompleted, currentSubtasks) { const updatedSubtasks = currentSubtasks.map(task => task.id === taskId ? { ...task, completed: isCompleted } : task ); try { const projectRef = doc(db, 'projects', userId, 'userProjects', projectId); await updateDoc(projectRef, { subtasks: updatedSubtasks }); } catch(error) { console.error("Error updating subtask status: ", error); } }
@@ -454,7 +424,7 @@
             signInBtn.addEventListener('click', () => { const provider = new GoogleAuthProvider(); signInWithPopup(auth, provider).catch(error => console.error("Error during sign in:", error)); });
             signOutBtn.addEventListener('click', () => signOut(auth));
             addProjectBtn.addEventListener('click', () => addProject(newProjectInput.value.trim()));
-            newProjectInput.addEventListener('keyup', (e) => { if (e.key === 'Enter') addProject(newProjectInput.value.trim()); aiBreakdownBtn.disabled = !e.target.value.trim(); });
+            newProjectInput.addEventListener('keyup', (e) => { if (e.key === 'Enter') { addProject(newProjectInput.value.trim()); e.target.focus(); } aiBreakdownBtn.disabled = !e.target.value.trim(); });
             aiBreakdownBtn.addEventListener('click', generateSubtasksWithAI);
             aiAdvisorBtn.addEventListener('click', getAIInsights);
             modalConfirmBtn.addEventListener('click', () => { if (projectToDelete) deleteProject(projectToDelete); });
