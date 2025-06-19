@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor de Tareas por Proyecto</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(to bottom right, #111827, #1f2937);
+            color: #d1d5db;
+        }
+        .project-card {
+            background: rgba(31, 41, 55, 0.5);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(55, 65, 81, 0.5);
+            transition: all 0.3s ease-in-out;
+        }
+        .subtask-item:has(input:checked) span {
+            text-decoration: line-through;
+            color: #6b7280;
+        }
+        .progress-bar-bg { background-color: #374151; }
+        .progress-bar-fg { transition: width 0.5s ease-in-out; }
+        .modal-overlay { transition: opacity 0.3s ease; }
+        .modal-content { transition: transform 0.3s ease, opacity 0.3s ease; }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .animate-spin-fast {
+            animation: spin 0.8s linear infinite;
+        }
+        .collapsible-content {
+            max-height: 1000px; /* Large enough for content */
+            overflow: hidden;
+            transition: max-height 0.5s ease-in-out, margin-top 0.5s ease-in-out, opacity 0.5s ease-in-out;
+        }
+        .project-card.collapsed .collapsible-content {
+            max-height: 0;
+            margin-top: 0 !important;
+            opacity: 0;
+        }
+        .project-card.collapsed .toggle-collapse-btn i {
+            transform: rotate(-90deg);
+        }
+        .toggle-collapse-btn i {
+            transition: transform 0.3s ease-in-out;
+        }
+        .next-task-preview {
+            display: none;
+            transition: opacity 0.5s ease-in-out;
+            opacity: 0;
+            padding-top: 0.75rem;
+        }
+        .project-card.collapsed .next-task-preview {
+            display: flex;
+            opacity: 1;
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <!-- Login Screen -->
+    <div id="login-screen" class="min-h-screen flex flex-col items-center justify-center p-4 text-center hidden">
+        <h1 class="text-4xl sm:text-5xl font-bold text-white">Gestor de Proyectos Inteligente</h1>
+        <p class="text-lg text-gray-400 mt-4 max-w-xl">Organiza, ejecuta y obtén consejos personalizados con IA.</p>
+        <button id="sign-in-btn" class="mt-8 bg-white hover:bg-gray-200 text-gray-800 font-semibold py-3 px-6 rounded-lg shadow-lg transition-transform transform hover:scale-105 inline-flex items-center space-x-3">
+            <svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4C12.955 4 4 12.955 4 24s8.955 20 20 20s20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/><path fill="#FF3D00" d="M6.306 14.691c-1.229 2.525-1.956 5.348-1.956 8.309c0 3.065.753 5.918 2.029 8.455l-5.657 5.657C.803 34.046 0 29.268 0 24c0-5.163.77-10.002 2.113-14.484l4.193 4.175z"/><path fill="#4CAF50" d="M24 48c5.163 0 10.002-.77 14.484-2.113l-4.193-4.175c-2.525 1.229-5.348 1.956-8.291 1.956c-3.065 0-5.918-.753-8.455-2.029l-5.657 5.657C10.046 41.947 14.832 44 20 44c1.341 0 2.65-.138 3.917-.389z"/><path fill="#1976D2" d="M43.611 20.083L48 24l-4.193 4.175c1.229-2.525 1.956-5.348 1.956-8.309c0-2.854-.703-5.568-1.889-7.961l-5.657 5.657C36.954 18.846 39.846 20 42 20z"/></svg>
+            <span>Iniciar Sesión con Google</span>
+        </button>
+    </div>
+    
+    <!-- Main App Screen -->
+    <div id="app-screen" class="hidden">
+        <div class="container mx-auto max-w-4xl p-4 sm:p-6 md:p-8">
+            <header class="text-center mb-6">
+                <div class="flex justify-center items-center mb-4 space-x-4">
+                    <img id="user-photo" src="" class="w-12 h-12 rounded-full border-2 border-blue-400">
+                    <div>
+                        <p id="user-name" class="text-xl font-bold text-white"></p>
+                        <button id="sign-out-btn" class="text-sm text-red-400 hover:text-red-300">Cerrar Sesión</button>
+                    </div>
+                     <button id="ai-advisor-btn" class="ml-4 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white font-bold p-2 rounded-full shadow-lg transition-transform transform hover:scale-110">
+                        <i data-lucide="brain-circuit" class="h-6 w-6"></i>
+                    </button>
+                </div>
+            </header>
+
+            <div class="flex flex-col sm:flex-row gap-4 mb-8">
+                <input type="text" id="new-project-input" class="w-full bg-gray-700 text-white placeholder-gray-400 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Nombre del nuevo proyecto...">
+                <button id="add-project-btn" class="sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg transition-transform transform hover:scale-105 inline-flex items-center justify-center space-x-2">
+                    <i data-lucide="plus" class="h-5 w-5"></i>
+                    <span>Crear</span>
+                </button>
+                <button id="ai-breakdown-btn" class="sm:w-auto bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg transition-transform transform hover:scale-105 inline-flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                     <span id="ai-btn-icon-wrapper">
+                        <i data-lucide="sparkles" class="h-5 w-5"></i>
+                    </span>
+                    <span>Desglosar con IA</span>
+                </button>
+            </div>
+
+            <main id="projects-container" class="space-y-6">
+                <!-- Project cards will be injected here -->
+            </main>
+        </div>
+    </div>
+    
+    <!-- Modals -->
+    <div id="confirmation-modal" class="modal-overlay fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-50 hidden opacity-0">
+        <div class="modal-content w-full max-w-md bg-gray-800 rounded-2xl shadow-xl p-8 transform scale-95 opacity-0">
+             <div class="text-center">
+                 <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-800">
+                     <i data-lucide="alert-triangle" class="h-6 w-6 text-red-300"></i>
+                 </div>
+                 <h3 class="text-xl font-bold text-white mt-4">Eliminar Proyecto</h3>
+                 <p class="text-gray-300 my-3">¿Estás seguro de que quieres eliminar el proyecto "<span id="project-name-modal" class="font-bold"></span>"?</p>
+                 <p class="text-sm text-gray-500">Esta acción no se puede deshacer.</p>
+             </div>
+             <div class="flex justify-center space-x-4 mt-8">
+                 <button id="modal-cancel-btn" class="px-8 py-2 rounded-lg bg-gray-600 hover:bg-gray-500 text-white font-semibold transition">Cancelar</button>
+                 <button id="modal-confirm-btn" class="px-8 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white font-semibold transition">Eliminar</button>
+             </div>
+         </div>
+    </div>
+
+     <div id="ai-insights-modal" class="modal-overlay fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-50 hidden opacity-0">
+        <div class="modal-content w-full max-w-lg bg-gray-800 rounded-2xl shadow-xl p-8 transform scale-95 opacity-0">
+             <div class="text-center">
+                 <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-gradient-to-r from-purple-500 to-indigo-600">
+                     <i data-lucide="brain-circuit" class="h-6 w-6 text-white"></i>
+                 </div>
+                 <h3 class="text-xl font-bold text-white mt-4">Consejos del Asistente IA</h3>
+             </div>
+             <div id="ai-insights-content" class="mt-6 space-y-4 text-left">
+                <!-- AI content will be injected here -->
+             </div>
+             <div class="text-center mt-8">
+                 <button id="ai-insights-close-btn" class="px-8 py-2 rounded-lg bg-gray-600 hover:bg-gray-500 text-white font-semibold transition">Cerrar</button>
+             </div>
+         </div>
+    </div>
+
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        document.addEventListener('DOMContentLoaded', () => {
+            let db, auth, userId, projectsCollectionRef, unsubscribe;
+            let projectToDelete = null;
+            let allProjectsData = [];
+            let collapsedProjects = new Set(); // To store the state
+
+            // DOM Elements
+            const loginScreen = document.getElementById('login-screen');
+            const appScreen = document.getElementById('app-screen');
+            const signInBtn = document.getElementById('sign-in-btn');
+            const signOutBtn = document.getElementById('sign-out-btn');
+            const userNameEl = document.getElementById('user-name');
+            const userPhotoEl = document.getElementById('user-photo');
+            const addProjectBtn = document.getElementById('add-project-btn');
+            const aiBreakdownBtn = document.getElementById('ai-breakdown-btn');
+            const newProjectInput = document.getElementById('new-project-input');
+            const projectsContainer = document.getElementById('projects-container');
+            const confirmationModal = document.getElementById('confirmation-modal');
+            const modalConfirmBtn = document.getElementById('modal-confirm-btn');
+            const modalCancelBtn = document.getElementById('modal-cancel-btn');
+            const projectNameModal = document.getElementById('project-name-modal');
+            const aiAdvisorBtn = document.getElementById('ai-advisor-btn');
+            const aiInsightsModal = document.getElementById('ai-insights-modal');
+            const aiInsightsContent = document.getElementById('ai-insights-content');
+            const aiInsightsCloseBtn = document.getElementById('ai-insights-close-btn');
+
+            // --- UI FUNCTIONS ---
+            function createProjectCard(project) {
+                const projectId = project.id;
+                const projectData = project.data();
+                const card = document.createElement('div');
+                card.className = 'project-card p-6 rounded-xl';
+                if (collapsedProjects.has(projectId)) {
+                    card.classList.add('collapsed');
+                }
+                card.id = `project-${projectId}`;
+
+                const subtasks = projectData.subtasks || [];
+                const completedCount = subtasks.filter(t => t.completed).length;
+                const progress = subtasks.length > 0 ? (completedCount / subtasks.length) * 100 : 0;
+                
+                const nextTask = subtasks.find(t => !t.completed);
+
+                let subtasksHTML = '<ul class="space-y-3 mt-4">';
+                subtasks.forEach(task => {
+                    subtasksHTML += `
+                        <li class="subtask-item flex items-center justify-between" id="subtask-${task.id}">
+                            <label class="flex items-center space-x-3 cursor-pointer">
+                                <input type="checkbox" data-task-id="${task.id}" ${task.completed ? 'checked' : ''} class="h-5 w-5 rounded border-gray-500 bg-gray-700 text-blue-500 focus:ring-blue-500">
+                                <span class="text-gray-200">${task.text}</span>
+                            </label>
+                            <button class="delete-subtask-btn text-gray-500 hover:text-red-400 transition" data-task-id="${task.id}">
+                                <i data-lucide="trash-2" class="h-4 w-4"></i>
+                            </button>
+                        </li>`;
+                });
+                subtasksHTML += '</ul>';
+                
+                let nextTaskHTML = '';
+                if(nextTask) {
+                    nextTaskHTML = `<div class="flex items-center gap-2 text-sm text-gray-400"><i data-lucide="corner-down-right" class="h-4 w-4"></i><span class="truncate">${nextTask.text}</span></div>`;
+                } else if (subtasks.length > 0) {
+                     nextTaskHTML = `<div class="flex items-center gap-2 text-sm text-green-400"><i data-lucide="check-circle-2" class="h-4 w-4"></i><span>¡Proyecto completado!</span></div>`;
+                }
+
+
+                card.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div class="flex items-center gap-2 cursor-pointer toggle-collapse-btn">
+                             <button class="text-gray-400 hover:text-white">
+                                <i data-lucide="chevron-down" class="h-6 w-6"></i>
+                            </button>
+                            <h2 class="text-2xl font-bold text-white">${projectData.title}</h2>
+                        </div>
+                        <button class="delete-project-btn text-gray-500 hover:text-red-400 transition">
+                            <i data-lucide="x" class="h-6 w-6"></i>
+                        </button>
+                    </div>
+                    <div class="next-task-preview">
+                        ${nextTaskHTML}
+                    </div>
+                    <div class="collapsible-content">
+                        <div class="mt-4">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="text-sm font-medium text-blue-300">Progreso</span>
+                                <span class="text-sm font-medium text-blue-300">${completedCount}/${subtasks.length} (${Math.round(progress)}%)</span>
+                            </div>
+                            <div class="w-full progress-bar-bg rounded-full h-2.5">
+                                <div class="bg-blue-500 h-2.5 rounded-full progress-bar-fg" style="width: ${progress}%"></div>
+                            </div>
+                        </div>
+                        ${subtasksHTML}
+                        <div class="flex gap-2 mt-6">
+                            <input type="text" class="new-subtask-input w-full bg-gray-800 text-white placeholder-gray-500 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Nueva subtarea...">
+                            <button class="add-subtask-btn bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-3 rounded-lg inline-flex items-center justify-center">
+                                <i data-lucide="plus" class="h-5 w-5"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+
+                card.querySelector('.toggle-collapse-btn').addEventListener('click', () => {
+                    card.classList.toggle('collapsed');
+                    if (card.classList.contains('collapsed')) {
+                        collapsedProjects.add(projectId);
+                    } else {
+                        collapsedProjects.delete(projectId);
+                    }
+                });
+                card.querySelector('.delete-project-btn').addEventListener('click', () => showDeleteModal(projectId, projectData.title));
+                card.querySelector('.add-subtask-btn').addEventListener('click', (e) => { const input = e.currentTarget.previousElementSibling; addSubtask(projectId, input.value); input.value = ''; });
+                card.querySelector('.new-subtask-input').addEventListener('keyup', (e) => { if (e.key === 'Enter') { addSubtask(projectId, e.target.value); e.target.value = ''; } });
+                card.querySelectorAll('.delete-subtask-btn').forEach(btn => btn.addEventListener('click', () => deleteSubtask(projectId, btn.dataset.taskId, projectData.subtasks)));
+                card.querySelectorAll('input[type="checkbox"]').forEach(checkbox => checkbox.addEventListener('change', () => updateSubtaskStatus(projectId, checkbox.dataset.taskId, checkbox.checked, projectData.subtasks)));
+
+                return card;
+            }
+            
+            function renderProjects(projects) {
+                projectsContainer.innerHTML = '';
+                allProjectsData = projects.map(p => ({ id: p.id, ...p.data() }));
+                projects.forEach(project => projectsContainer.appendChild(createProjectCard(project)));
+                lucide.createIcons();
+            }
+            
+            function showModal(modalEl) {
+                modalEl.classList.remove('hidden');
+                setTimeout(() => {
+                    modalEl.classList.remove('opacity-0');
+                    modalEl.querySelector('.modal-content').classList.remove('opacity-0', 'scale-95');
+                }, 10);
+            }
+
+            function hideModal(modalEl) {
+                 modalEl.classList.add('opacity-0');
+                 modalEl.querySelector('.modal-content').classList.add('opacity-0', 'scale-95');
+                 setTimeout(() => { modalEl.classList.add('hidden'); }, 300);
+            }
+
+            function showDeleteModal(projectId, projectName) {
+                projectToDelete = projectId;
+                projectNameModal.textContent = projectName;
+                showModal(confirmationModal);
+            }
+            
+            function cleanAIResponse(text) {
+                const firstBrace = text.indexOf('{');
+                const lastBrace = text.lastIndexOf('}');
+
+                if (firstBrace === -1 || lastBrace === -1 || lastBrace < firstBrace) {
+                    return null;
+                }
+                return text.substring(firstBrace, lastBrace + 1);
+            }
+
+
+            // --- FIRESTORE & AI FUNCTIONS ---
+            async function addProject(title, subtasks = []) {
+                if (title && userId) {
+                    try { await addDoc(projectsCollectionRef, { title, createdAt: serverTimestamp(), subtasks }); newProjectInput.value = ''; } catch (error) { console.error("Error adding project: ", error); }
+                }
+            }
+
+            async function generateSubtasksWithAI() {
+                const projectTitle = newProjectInput.value.trim();
+                if (!projectTitle) return;
+                const aiBtnIcon = document.getElementById('ai-btn-icon-wrapper');
+                aiBreakdownBtn.disabled = true;
+                aiBtnIcon.innerHTML = `<i data-lucide="loader-2" class="h-5 w-5 animate-spin-fast"></i>`;
+                lucide.createIcons();
+                try {
+                    const prompt = `Based on the project title "${projectTitle}", generate a list of actionable subtasks. Return ONLY a single, raw, valid JSON object with a key "subtasks" containing an array of strings. The subtasks must be in Spanish. Example: {"subtasks": ["Subtarea 1", "Subtarea 2"]}`;
+                    const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
+                    const apiKey = "AIzaSyAW7aAZeEEeJDhwyRurEvpbMS4N3NoSjmw";
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                    const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    if (!response.ok) throw new Error(`API request failed with status ${response.status}`);
+                    const result = await response.json();
+                    if (result.candidates && result.candidates[0].content.parts[0].text) {
+                        const cleanedText = cleanAIResponse(result.candidates[0].content.parts[0].text);
+                        if (!cleanedText) throw new Error("Could not find valid JSON in AI response.");
+                        const parsed = JSON.parse(cleanedText);
+                        const aiSubtasks = parsed.subtasks.map(taskText => ({ id: doc(collection(db, 'dummy')).id, text: taskText, completed: false }));
+                        await addProject(projectTitle, aiSubtasks);
+                    } else { throw new Error("Invalid AI response."); }
+                } catch (error) { console.error("Error generating tasks with AI: ", error); alert("Hubo un error al generar las tareas."); } finally {
+                    aiBreakdownBtn.disabled = false;
+                    aiBtnIcon.innerHTML = `<i data-lucide="sparkles" class="h-5 w-5"></i>`;
+                    lucide.createIcons();
+                }
+            }
+            
+            async function getAIInsights() {
+                if (allProjectsData.length === 0) {
+                    alert("Necesitas tener al menos un proyecto para recibir consejos.");
+                    return;
+                }
+                
+                aiInsightsContent.innerHTML = `<div class="text-center"><i data-lucide="loader-2" class="h-8 w-8 animate-spin-fast text-purple-400 mx-auto"></i><p class="text-purple-300 mt-2">Analizando tu progreso...</p></div>`;
+                lucide.createIcons();
+                showModal(aiInsightsModal);
+
+                const projectSummary = allProjectsData.map(p => {
+                    const total = p.subtasks.length;
+                    const completed = p.subtasks.filter(t => t.completed).length;
+                    return `Project: "${p.title}" - Status: ${completed}/${total} tasks completed.`;
+                }).join('\n');
+
+                const prompt = `You are a productivity coach AI. Analyze the following summary of a user's projects. Based on this data, provide a brief, encouraging analysis of their productivity and sentiment. Then, offer one specific, actionable productivity tip, and one suggestion for a new project they might enjoy based on their existing project titles. The entire response must be in Spanish.
+                
+                User's Project Data:
+                ${projectSummary}
+
+                Return ONLY a single, raw, valid JSON object with three keys: "observation", "tip", and "suggestion". Example: {"observation": "Estás haciendo un gran progreso...", "tip": "Prueba la Técnica Pomodoro...", "suggestion": "Dado que te gusta 'Aprender Piano', ¿qué tal un proyecto llamado 'Componer una canción corta'?"}`;
+
+                try {
+                    const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
+                    const apiKey = "AIzaSyAW7aAZeEEeJDhwyRurEvpbMS4N3NoSjmw";
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                    const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    if (!response.ok) throw new Error(`API request failed`);
+                    const result = await response.json();
+                    if (result.candidates && result.candidates[0].content.parts[0].text) {
+                        const cleanedText = cleanAIResponse(result.candidates[0].content.parts[0].text);
+                        if (!cleanedText) throw new Error("Could not find valid JSON in AI response.");
+                        const parsed = JSON.parse(cleanedText);
+                        aiInsightsContent.innerHTML = `
+                            <div class="space-y-4">
+                                <div>
+                                    <h4 class="font-semibold text-purple-300">📈 Observación General</h4>
+                                    <p>${parsed.observation}</p>
+                                </div>
+                                <div>
+                                    <h4 class="font-semibold text-green-300">💡 Consejo de Productividad</h4>
+                                    <p>${parsed.tip}</p>
+                                </div>
+                                <div>
+                                    <h4 class="font-semibold text-blue-300">🚀 Sugerencia de Nuevo Proyecto</h4>
+                                    <p>${parsed.suggestion}</p>
+                                </div>
+                            </div>
+                        `;
+                    } else { throw new Error("Invalid AI response structure."); }
+                } catch (error) {
+                    console.error("Error getting AI insights: ", error);
+                    aiInsightsContent.innerHTML = `<p class="text-red-400 text-center">Hubo un error al obtener los consejos. Por favor, inténtalo de nuevo.</p>`;
+                }
+            }
+
+
+            async function deleteProject(projectId) { try { await deleteDoc(doc(db, 'projects', userId, 'userProjects', projectId)); hideModal(confirmationModal); } catch (error) { console.error("Error deleting project: ", error); } }
+            async function addSubtask(projectId, text) { if (!text.trim()) return; try { const projectRef = doc(db, 'projects', userId, 'userProjects', projectId); await updateDoc(projectRef, { subtasks: arrayUnion({ id: doc(collection(db, 'dummy')).id, text: text.trim(), completed: false }) }); } catch(error) { console.error("Error adding subtask: ", error); } }
+            async function updateSubtaskStatus(projectId, taskId, isCompleted, currentSubtasks) { const updatedSubtasks = currentSubtasks.map(task => task.id === taskId ? { ...task, completed: isCompleted } : task ); try { const projectRef = doc(db, 'projects', userId, 'userProjects', projectId); await updateDoc(projectRef, { subtasks: updatedSubtasks }); } catch(error) { console.error("Error updating subtask status: ", error); } }
+            async function deleteSubtask(projectId, taskId, currentSubtasks) { const taskToDelete = currentSubtasks.find(t => t.id === taskId); if (!taskToDelete) return; try { const projectRef = doc(db, 'projects', userId, 'userProjects', projectId); await updateDoc(projectRef, { subtasks: arrayRemove(taskToDelete) }); } catch(error) { console.error("Error deleting subtask: ", error); } }
+
+            // --- AUTH & INITIALIZATION ---
+            function setupSnapshotListener() {
+                if (unsubscribe) unsubscribe();
+                projectsCollectionRef = collection(db, 'projects', userId, 'userProjects');
+                unsubscribe = onSnapshot(projectsCollectionRef, (querySnapshot) => {
+                    const projects = querySnapshot.docs.sort((a, b) => (b.data().createdAt?.toMillis() || 0) - (a.data().createdAt?.toMillis() || 0));
+                    renderProjects(projects);
+                }, (error) => console.error("Error listening to projects:", error));
+            }
+
+            function setupApp() {
+                const firebaseConfig = {
+                  apiKey: "AIzaSyB4ntNn-uwjC-NSBFcqkt10DDacM8l1hgQ",
+                  authDomain: "mi-gestor-de-tiempo.firebaseapp.com",
+                  projectId: "mi-gestor-de-tiempo",
+                  storageBucket: "mi-gestor-de-tiempo.firebasestorage.app",
+                  messagingSenderId: "137189980771",
+                  appId: "1:137189980771:web:a0c2847d6d4fc3f7e05656",
+                  measurementId: "G-E8685C14RV"
+                };
+
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        userNameEl.textContent = user.displayName;
+                        userPhotoEl.src = user.photoURL;
+                        loginScreen.classList.add('hidden');
+                        appScreen.classList.remove('hidden');
+                        setupSnapshotListener();
+                    } else {
+                        loginScreen.classList.remove('hidden');
+                        appScreen.classList.add('hidden');
+                        if (unsubscribe) unsubscribe();
+                    }
+                });
+            }
+
+            setupApp();
+            
+            // Event Listeners
+            signInBtn.addEventListener('click', () => { const provider = new GoogleAuthProvider(); signInWithPopup(auth, provider).catch(error => console.error("Error during sign in:", error)); });
+            signOutBtn.addEventListener('click', () => signOut(auth));
+            addProjectBtn.addEventListener('click', () => addProject(newProjectInput.value.trim()));
+            newProjectInput.addEventListener('keyup', (e) => { if (e.key === 'Enter') addProject(newProjectInput.value.trim()); aiBreakdownBtn.disabled = !e.target.value.trim(); });
+            aiBreakdownBtn.addEventListener('click', generateSubtasksWithAI);
+            aiAdvisorBtn.addEventListener('click', getAIInsights);
+            modalConfirmBtn.addEventListener('click', () => { if (projectToDelete) deleteProject(projectToDelete); });
+            modalCancelBtn.addEventListener('click', () => hideModal(confirmationModal));
+            aiInsightsCloseBtn.addEventListener('click', () => hideModal(aiInsightsModal));
+            confirmationModal.addEventListener('click', (e) => { if (e.target === confirmationModal) hideModal(confirmationModal); });
+            aiInsightsModal.addEventListener('click', (e) => { if (e.target === aiInsightsModal) hideModal(aiInsightsModal); });
+        });
+    </script>
+</body>
+</html>
